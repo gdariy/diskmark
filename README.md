@@ -26,12 +26,12 @@ gcc benchmark.c main.c -o diskmark -lncurses
 
 ## Usage
 
-![caption](https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExejU3MHR4amZnZ2F1ZHJ1M3Ria3ZhanR4eTJlZjJueGx0OWUxMWRqYiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/GToBTKIqq46fZYyfWs/giphy.gif)
+![caption](https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDExeWtoNGE3bmtzbmV4ZXZ2ODN5bWp1Z3h5ZXM5YnV3Y282ZXd2NyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/o8Vt9b4aMtiP9zhtd1/giphy.gif)
 
-You may test your flashdrive, SSD or HDD by entering directory path:
+You can test your flashdrive, SSD or HDD by entering directory path:
 
 For example "/media/user/flashdrive/" or "/home/user/"
 
-[WARNING] Do not enter a block device paths from /dev
+[WARNING] Do not enter paths to the block devices from /dev/
 
 Select the size of the testfile and the number of tests via interface

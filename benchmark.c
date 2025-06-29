@@ -168,6 +168,13 @@ double rndwrite_mark(long filesize, const char *target)
         return -1;
     }
 
+    if (unlink(target) == -1) {
+        perror("File error");
+        close(fd);
+        free(block);
+        return -1;
+    } 
+
     struct timespec start, end;
 
     long bytes_result = 0;

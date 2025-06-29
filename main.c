@@ -1,7 +1,4 @@
 #include <ncurses.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include "benchmark.h"
 
 #define MENU_ITEMS 5
@@ -11,7 +8,6 @@
 void fill_window(WINDOW *window)
 {
   box(window, 0, 0);
-  keypad(window, TRUE);
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
 
@@ -22,6 +18,17 @@ void fill_window(WINDOW *window)
   wrefresh(window);
 }
 
+void print_msg(WINDOW *window, const char *msg)
+{
+  wclear(window);
+  fill_window(window);
+  int max_y, max_x;
+  getmaxyx(window, max_y, max_x);
+
+  mvwprintw(window, max_y / 2, (max_x - strlen(msg)) / 2, "%s", msg);
+  wrefresh(window);
+}
+
 int select_filesize(WINDOW *window)
 {
   fill_window(window);
@@ -29,6 +36,8 @@ int select_filesize(WINDOW *window)
   getmaxyx(window, max_y, max_x);
   int start_y = (max_y - MENU_ITEMS) / 2;
   int start_x = (max_x - MAX_MENU_LENGTH) / 2;
+
+  keypad(window, TRUE);
 
   char filesize_menu[MENU_ITEMS][MAX_MENU_LENGTH] = {
       "16MB", "128MB", "512MB", "1GB", "Exit"};
@@ -71,6 +80,8 @@ int select_filesize(WINDOW *window)
       break;
     }
   }
+
+  keypad(window, FALSE);
   wclear(window);
   wrefresh(window);
 
@@ -84,12 +95,14 @@ int select_iterations(WINDOW *window)
   getmaxyx(window, max_y, max_x);
   int start_y = (max_y - MENU_ITEMS) / 2;
   int start_x = max_x / 2 - MAX_MENU_LENGTH / 2;
-
   char filesize_menu[MENU_ITEMS][MAX_MENU_LENGTH] = {
       "1", "3", "5", "10", "Exit"};
   int input_key = 0;
   int highlight = 0;
   int done = 0;
+
+  keypad(window, TRUE);
+
   while (!done)
   {
     for (int i = 0; i < MENU_ITEMS; i++)
@@ -126,16 +139,18 @@ int select_iterations(WINDOW *window)
       break;
     }
   }
+
+  keypad(window, FALSE);
   wclear(window);
   wrefresh(window);
+  
   return highlight;
 }
 
 char *select_path(WINDOW *window)
 {
   fill_window(window);
-  const char *msg01 = "Enter the path to a directory: ";
-  const char *msg02 = "[Empty will benchmark the current disk]";
+  const char *msg = "Enter path to a disk(empty is valid):";
   char *path = malloc(MAX_PATH);
   int max_y, max_x;
   getmaxyx(window, max_y, max_x);
@@ -144,10 +159,9 @@ char *select_path(WINDOW *window)
   curs_set(1);
   keypad(window, FALSE);
 
-  mvwprintw(window, max_y / 2, (max_x - strlen(msg01)) / 2, "%s", msg01);
-  mvwprintw(window, max_y / 2 + 1, (max_x - strlen(msg02)) / 2, "%s", msg02);
-  wrefresh(window);
-  wmove(window, max_y / 2 + 2, (max_x - strlen(msg01)) / 2);
+  print_msg(window, msg);
+
+  wmove(window, max_y / 2 + 1, (max_x - strlen(msg)) / 2);
   wgetnstr(window, path, MAX_PATH);
 
   noecho();
@@ -167,23 +181,31 @@ int main()
     fprintf(stderr, "Error initializing ncurses\n");
     exit(EXIT_FAILURE);
   }
+
   cbreak();
   noecho();
-
   curs_set(0);
 
+  char *path = NULL;
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
 
   WINDOW *win = newwin(max_y - 4, max_x - 4, 2, 2);
   if (win == NULL)
   {
-    endwin();
     fprintf(stderr, "Error creating window\n");
-    return 1;
+    goto cleanup;
   }
-  keypad(win, TRUE);
-  char *path = select_path(win);
+  getmaxyx(win, max_y, max_x);
+
+  if (!geteuid())
+  {
+    print_msg(win, "Running as root is not allowed!");
+    wgetch(win);
+    goto cleanup;
+  }
+
+  path = select_path(win);
   strcat(path, "test.dat");
 
   int filesize_choice = select_filesize(win);
@@ -227,7 +249,7 @@ int main()
   default:
     goto cleanup;
   }
-  getmaxyx(win, max_y, max_x);
+
   fill_window(win);
 
   mvwprintw(win, (max_y - 4) / 2, (max_x - 12) / 2, "Please wait...");
@@ -241,33 +263,41 @@ int main()
 
   for (int i = 0; i < iterations; i++)
   {
-    mvwprintw(win, (max_y - 4) / 2 + 1, (max_x - 12) / 2, "Test %d/%d", i, iterations);
+    mvwprintw(win, (max_y - 4) / 2 + 1, (max_x - 12) / 2, "Test %d/%d", i + 1, iterations);
     wrefresh(win);
+
     double result_sw = seqwrite_mark(filesize, path);
-    if (result_sw == -1.0)
+    if (result_sw == -1)
     {
-      fprintf(stderr, "Sequential write error\n");
+      print_msg(win, "Error! Probably the wrong path");
+      wgetch(win);
       goto cleanup;
     }
     total_sw += result_sw;
+
     double result_sr = seqread_mark(filesize, path);
-    if (result_sr == -1.0)
+    if (result_sr == -1)
     {
-      fprintf(stderr, "Sequential read error\n");
+      print_msg(win, "Error! Probably the wrong path");
+      wgetch(win);
       goto cleanup;
     }
     total_sr += result_sr;
+
     double result_rr = rndread_mark(filesize, path);
-    if (result_rr == -1.0)
+    if (result_rr == -1)
     {
-      fprintf(stderr, "Random read error\n");
+      print_msg(win, "Error! Probably the wrong path");
+      wgetch(win);
       goto cleanup;
     }
     total_rr += result_rr;
+
     double result_rw = rndwrite_mark(filesize, path);
-    if (result_rw == -1.0)
+    if (result_rw == -1)
     {
-      fprintf(stderr, "Random write error\n");
+      print_msg(win, "Error! Probably the wrong path");
+      wgetch(win);
       goto cleanup;
     }
     total_rw += result_rw;
@@ -283,9 +313,16 @@ int main()
   wrefresh(win);
   wgetch(win);
 
-cleanup:
-  delwin(win);
+  if (win)
+    delwin(win);
   free(path);
   endwin();
   return 0;
+
+cleanup:
+  if (win)
+    delwin(win);
+  free(path);
+  endwin();
+  return 1;
 }

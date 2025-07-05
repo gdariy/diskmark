@@ -8,7 +8,7 @@ Benchmarks both sequential and random read/write performance
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/myx0m00000p/diskmark.git
+git clone https://github.com/gdariy/diskmark.git
 cd diskmark
 ```
 2. On Linux AMD64 simply run:

@@ -1,9 +1,11 @@
-#include <ncurses.h>
 #include "benchmark.h"
+#include "findmounts.h"
 
-#define MENU_ITEMS 5
-#define MAX_MENU_LENGTH 6
-#define MAX_PATH 100
+#include <ncurses.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
 
 void fill_window(WINDOW *window)
 {
@@ -27,32 +29,32 @@ void print_msg(WINDOW *window, const char *msg)
 
   mvwprintw(window, max_y / 2, (max_x - strlen(msg)) / 2, "%s", msg);
   wrefresh(window);
+  wgetch(window);
+  wclear(window);
 }
 
-int select_filesize(WINDOW *window)
+int display_menu(WINDOW *window, char **items, int len_items)
 {
   fill_window(window);
   int max_y, max_x;
   getmaxyx(window, max_y, max_x);
-  int start_y = (max_y - MENU_ITEMS) / 2;
-  int start_x = (max_x - MAX_MENU_LENGTH) / 2;
+  int x, y = (max_y - len_items) / 2;
 
   keypad(window, TRUE);
 
-  char filesize_menu[MENU_ITEMS][MAX_MENU_LENGTH] = {
-      "16MB", "128MB", "512MB", "1GB", "Exit"};
   int input_key = 0;
   int highlight = 0;
   int done = 0;
   while (!done)
   {
-    for (int i = 0; i < MENU_ITEMS; i++)
+    for (int i = 0; i < len_items; i++)
     {
       if (i == highlight)
       {
         wattron(window, A_REVERSE);
       }
-      mvwprintw(window, start_y + i, start_x, "%s", filesize_menu[i]);
+      x = (max_x - strlen(items[i])) / 2;
+      mvwprintw(window, y + i, x, "%s", items[i]);
       wattroff(window, A_REVERSE);
     }
 
@@ -67,7 +69,7 @@ int select_filesize(WINDOW *window)
       }
       break;
     case KEY_DOWN:
-      if (highlight < MENU_ITEMS - 1)
+      if (highlight < len_items - 1)
       {
         highlight++;
       }
@@ -86,91 +88,6 @@ int select_filesize(WINDOW *window)
   wrefresh(window);
 
   return highlight;
-}
-
-int select_iterations(WINDOW *window)
-{
-  fill_window(window);
-  int max_y, max_x;
-  getmaxyx(window, max_y, max_x);
-  int start_y = (max_y - MENU_ITEMS) / 2;
-  int start_x = max_x / 2 - MAX_MENU_LENGTH / 2;
-  char filesize_menu[MENU_ITEMS][MAX_MENU_LENGTH] = {
-      "1", "3", "5", "10", "Exit"};
-  int input_key = 0;
-  int highlight = 0;
-  int done = 0;
-
-  keypad(window, TRUE);
-
-  while (!done)
-  {
-    for (int i = 0; i < MENU_ITEMS; i++)
-    {
-      if (i == highlight)
-      {
-        wattron(window, A_REVERSE);
-      }
-      mvwprintw(window, start_y + i, start_x, "%s", filesize_menu[i]);
-      wattroff(window, A_REVERSE);
-    }
-
-    input_key = wgetch(window);
-
-    switch (input_key)
-    {
-    case KEY_UP:
-      if (highlight > 0)
-      {
-        highlight--;
-      }
-      break;
-    case KEY_DOWN:
-      if (highlight < MENU_ITEMS - 1)
-      {
-        highlight++;
-      }
-      break;
-    case 10:
-    case KEY_ENTER:
-      done = 1;
-      break;
-    default:
-      break;
-    }
-  }
-
-  keypad(window, FALSE);
-  wclear(window);
-  wrefresh(window);
-  
-  return highlight;
-}
-
-char *select_path(WINDOW *window)
-{
-  fill_window(window);
-  const char *msg = "Enter path to a disk(empty is valid):";
-  char *path = malloc(MAX_PATH);
-  int max_y, max_x;
-  getmaxyx(window, max_y, max_x);
-
-  echo();
-  curs_set(1);
-  keypad(window, FALSE);
-
-  print_msg(window, msg);
-
-  wmove(window, max_y / 2 + 1, (max_x - strlen(msg)) / 2);
-  wgetnstr(window, path, MAX_PATH);
-
-  noecho();
-  curs_set(0);
-  keypad(window, TRUE);
-
-  wclear(window);
-  wrefresh(window);
-  return path;
 }
 
 int main()
@@ -186,7 +103,8 @@ int main()
   noecho();
   curs_set(0);
 
-  char *path = NULL;
+  char **volumes_str = NULL;
+  char path[MAX_PATH_LEN];
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
 
@@ -201,14 +119,33 @@ int main()
   if (!geteuid())
   {
     print_msg(win, "Running as root is not allowed!");
-    wgetch(win);
     goto cleanup;
   }
 
-  path = select_path(win);
-  strcat(path, "test.dat");
+  MountInfo *mounts;
+  int count = get_mounts(&mounts);
+  if (!count)
+  {
+    print_msg(win, "Devices not found!");
+    goto cleanup;
+  }
+  volumes_str = malloc(count * sizeof(char *));
 
-  int filesize_choice = select_filesize(win);
+  print_msg(win, "Please select disk device for testing:");
+  for (int i = 0; i < count; i++)
+  {
+    volumes_str[i] = malloc(MAX_LINE_LENGTH * sizeof(char));
+    sprintf(volumes_str[i], "%s\t%s\t%llu GiB/%llu GiB", mounts[i].device, mounts[i].mountPoint,
+            (mounts[i].totalBytes - mounts[i].availBytes) / 1024 / 1024 / 1024, mounts[i].totalBytes / 1024 / 1024 / 1024);
+  }
+  int path_choice = display_menu(win, volumes_str, count);
+  strcpy(path, mounts[path_choice].mountPoint);
+  strcat(path, "/test.dat");
+  free(mounts);
+
+  char *filesize_menu[] = {
+      "16MB", "128MB", "512MB", "1GB", "Exit"};
+  int filesize_choice = display_menu(win, filesize_menu, 5);
   long filesize;
   switch (filesize_choice)
   {
@@ -229,7 +166,9 @@ int main()
     goto cleanup;
   }
 
-  int iterations_choice = select_iterations(win);
+  char *iterations_menu[] = {
+      "1", "3", "5", "10", "Exit"};
+  int iterations_choice = display_menu(win, iterations_menu, 5);
   int iterations;
   switch (iterations_choice)
   {
@@ -270,7 +209,6 @@ int main()
     if (result_sw == -1)
     {
       print_msg(win, "Error! Probably the wrong path");
-      wgetch(win);
       goto cleanup;
     }
     total_sw += result_sw;
@@ -279,7 +217,6 @@ int main()
     if (result_sr == -1)
     {
       print_msg(win, "Error! Probably the wrong path");
-      wgetch(win);
       goto cleanup;
     }
     total_sr += result_sr;
@@ -288,7 +225,6 @@ int main()
     if (result_rr == -1)
     {
       print_msg(win, "Error! Probably the wrong path");
-      wgetch(win);
       goto cleanup;
     }
     total_rr += result_rr;
@@ -297,7 +233,6 @@ int main()
     if (result_rw == -1)
     {
       print_msg(win, "Error! Probably the wrong path");
-      wgetch(win);
       goto cleanup;
     }
     total_rw += result_rw;
@@ -315,14 +250,14 @@ int main()
 
   if (win)
     delwin(win);
-  free(path);
+  free(volumes_str);
   endwin();
   return 0;
 
 cleanup:
   if (win)
     delwin(win);
-  free(path);
+  free(volumes_str);
   endwin();
   return 1;
 }
